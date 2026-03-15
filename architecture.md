@@ -1,8 +1,8 @@
 # Architecture Overview
 
-This project is now backend-first with a versioned API (`/v1/*`) and optional built-in UI for testing.
+This project is backend-first with a versioned API (`/v1/*`) and an optional built-in UI for validation/testing.
 
-## 1) Current Architecture (Backend-First, Optional UI)
+## 1) Current Architecture (Backend-First + Optional UI)
 
 ```mermaid
 flowchart TD
@@ -29,6 +29,7 @@ flowchart TD
 - Backend info: `/`, `/v1/root`
 - Primary websocket: `/v1/ws/{user_id}/{session_id}`
 - Optional built-in UI: `/v1/ui`
+- Optional UI static assets: `/v1/ui/static/*`
 - Backward compatibility: `/ui`, `/ws/{user_id}/{session_id}`
 
 ### Protocol summary
@@ -36,6 +37,13 @@ flowchart TD
 - Binary framed media: `LG + frame_type + payload`
   - `0x01` = PCM16 audio (`audio/pcm;rate=16000`)
   - `0x02` = JPEG image (`image/jpeg`)
+
+### Current built-in UI composition
+- Slim header with connection status + run-config toggles.
+- Chat-first main layout (messages + sticky composer).
+- Event console in right-side drawer (open/close, persisted state).
+- Live camera as floating overlay panel (does not push chat layout).
+- Camera snapshot remains modal-based for single-image capture.
 
 ---
 
@@ -68,7 +76,7 @@ flowchart TD
 
 ---
 
-## 3) Stream Lifecycle (Current)
+## 3) Streaming Lifecycle (Current)
 
 ```mermaid
 sequenceDiagram
@@ -83,3 +91,14 @@ sequenceDiagram
   B-->>C: Event JSON text frames
   C-->>B: Continue sending user media/text
 ```
+
+### Lifecycle details
+1. Client loads UI from `/v1/ui` and static assets from `/v1/ui/static/*`.
+2. Client opens websocket to `/v1/ws/{user_id}/{session_id}`.
+3. Upstream messages:
+   - Text JSON messages (`type=text`).
+   - Framed binary audio (`0x01`).
+   - Framed binary image (`0x02`, snapshot/live-cam 1 FPS).
+4. Backend pushes upstream data to ADK `LiveRequestQueue`.
+5. ADK runner streams downstream events (transcriptions/content/audio/turn markers).
+6. Client renders chat/transcriptions, plays returned audio, and logs event details in drawer console.
