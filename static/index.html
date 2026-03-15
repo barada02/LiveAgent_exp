@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ADK Gemini Live API Toolkit Demo</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-    <script src="/static/js/app.js" type="module"></script>
+    <link rel="stylesheet" href="/v1/ui/static/css/style.css">
+    <script src="/v1/ui/static/js/app.js" type="module"></script>
   </head>
 
   <body>
@@ -45,8 +45,17 @@
               <button type="submit" id="sendButton" disabled>Send</button>
               <button type="button" id="startAudioButton">Start Audio</button>
               <button type="button" id="cameraButton">📷 Camera</button>
+              <button type="button" id="liveCameraButton">🎥 Start Live Cam</button>
             </div>
           </form>
+
+          <div id="liveCameraPanel" class="live-camera-panel">
+            <div class="live-camera-header">
+              <span id="liveCameraStatus">Live camera: stopped</span>
+              <span id="liveCameraStats">Frames sent: 0</span>
+            </div>
+            <video id="liveCameraFeed" autoplay playsinline muted></video>
+          </div>
         </div>
       </div>
 

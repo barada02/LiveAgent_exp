@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 import logging
+import time
 import warnings
 from pathlib import Path
 
@@ -36,6 +37,9 @@ warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
 # Application name constant
 APP_NAME = "bidi-demo"
+BINARY_MAGIC = b"LG"
+BINARY_FRAME_TYPE_AUDIO_PCM16 = 0x01
+BINARY_FRAME_TYPE_IMAGE_JPEG = 0x02
 
 # ========================================
 # Phase 1: Application Initialization (once at startup)
@@ -46,6 +50,7 @@ app = FastAPI()
 # Mount static files
 static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
+app.mount("/v1/ui/static", StaticFiles(directory=static_dir), name="ui-static-v1")
 
 # Define your session service
 session_service = InMemorySessionService()
@@ -60,7 +65,39 @@ runner = Runner(app_name=APP_NAME, agent=agent, session_service=session_service)
 
 @app.get("/")
 async def root():
-    """Serve the index.html page."""
+    """Backend service root endpoint."""
+    return {
+        "service": APP_NAME,
+        "status": "ok",
+        "version": "v1",
+        "endpoints": {
+            "root": "/v1/root",
+            "ui": "/v1/ui",
+            "websocket": "/v1/ws/{user_id}/{session_id}",
+        },
+    }
+
+
+@app.get("/v1/root")
+async def v1_root():
+    """Versioned backend health/info endpoint."""
+    return {
+        "service": APP_NAME,
+        "status": "ok",
+        "version": "v1",
+        "message": "Backend is running",
+    }
+
+
+@app.get("/v1/ui")
+async def v1_ui():
+    """Serve optional UI for local/backend validation."""
+    return FileResponse(Path(__file__).parent / "static" / "index.html")
+
+
+@app.get("/ui")
+async def ui_legacy():
+    """Legacy UI endpoint for backward compatibility."""
     return FileResponse(Path(__file__).parent / "static" / "index.html")
 
 
@@ -69,6 +106,7 @@ async def root():
 # ========================================
 
 
+@app.websocket("/v1/ws/{user_id}/{session_id}")
 @app.websocket("/ws/{user_id}/{session_id}")
 async def websocket_endpoint(
     websocket: WebSocket,
@@ -170,19 +208,76 @@ async def websocket_endpoint(
     async def upstream_task() -> None:
         """Receives messages from WebSocket and sends to LiveRequestQueue."""
         logger.debug("upstream_task started")
+        audio_frame_count = 0
+        image_frame_count = 0
+        last_stats_log = time.monotonic()
+
+        def maybe_log_upstream_stats() -> None:
+            nonlocal last_stats_log
+            now = time.monotonic()
+            if now - last_stats_log >= 5:
+                logger.info(
+                    "Upstream frame stats (last 5s): "
+                    f"audio_frames={audio_frame_count}, image_frames={image_frame_count}"
+                )
+                last_stats_log = now
+
         while True:
             # Receive message from WebSocket (text or binary)
             message = await websocket.receive()
 
-            # Handle binary frames (audio data)
+            # Handle binary frames (typed binary protocol or legacy audio)
             if "bytes" in message:
-                audio_data = message["bytes"]
-                logger.debug(f"Received binary audio chunk: {len(audio_data)} bytes")
+                binary_data = message["bytes"]
 
-                audio_blob = types.Blob(
-                    mime_type="audio/pcm;rate=16000", data=audio_data
+                if not binary_data:
+                    continue
+
+                # Framed binary protocol:
+                # [0x4C, 0x47, frame_type, ...payload]
+                has_framed_header = (
+                    len(binary_data) >= 3 and binary_data[:2] == BINARY_MAGIC
                 )
-                live_request_queue.send_realtime(audio_blob)
+
+                if has_framed_header:
+                    frame_type = binary_data[2]
+                    payload = binary_data[3:]
+
+                    if frame_type == BINARY_FRAME_TYPE_AUDIO_PCM16:
+                        logger.debug(
+                            "Received framed binary audio chunk: "
+                            f"{len(payload)} bytes"
+                        )
+                        audio_frame_count += 1
+                        audio_blob = types.Blob(
+                            mime_type="audio/pcm;rate=16000", data=payload
+                        )
+                        live_request_queue.send_realtime(audio_blob)
+                    elif frame_type == BINARY_FRAME_TYPE_IMAGE_JPEG:
+                        logger.debug(
+                            "Received framed binary image chunk: "
+                            f"{len(payload)} bytes"
+                        )
+                        image_frame_count += 1
+                        image_blob = types.Blob(mime_type="image/jpeg", data=payload)
+                        live_request_queue.send_realtime(image_blob)
+                    else:
+                        logger.warning(
+                            "Unknown framed binary type received: " f"{frame_type}"
+                        )
+                else:
+                    # Backward compatibility: treat unframed binary payload as audio PCM
+                    logger.debug(
+                        "Received legacy binary audio chunk: "
+                        f"{len(binary_data)} bytes"
+                    )
+                    audio_frame_count += 1
+                    audio_blob = types.Blob(
+                        mime_type="audio/pcm;rate=16000", data=binary_data
+                    )
+                    live_request_queue.send_realtime(audio_blob)
+
+                maybe_log_upstream_stats()
 
             # Handle text frames (JSON messages)
             elif "text" in message:
@@ -214,6 +309,8 @@ async def websocket_endpoint(
                     # Send image as blob
                     image_blob = types.Blob(mime_type=mime_type, data=image_data)
                     live_request_queue.send_realtime(image_blob)
+                    image_frame_count += 1
+                    maybe_log_upstream_stats()
 
     async def downstream_task() -> None:
         """Receives Events from run_live() and sends to WebSocket."""
