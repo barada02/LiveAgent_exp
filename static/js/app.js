@@ -43,7 +43,7 @@ enableAffectiveDialogCheckbox.addEventListener("change", handleRunConfigChange);
 function getWebSocketUrl() {
   // Use wss:// for HTTPS pages, ws:// for HTTP (localhost development)
   const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const baseUrl = wsProtocol + "//" + window.location.host + "/ws/" + userId + "/" + sessionId;
+  const baseUrl = wsProtocol + "//" + window.location.host + "/v1/ws/" + userId + "/" + sessionId;
   const params = new URLSearchParams();
 
   // Add proactivity option if checked

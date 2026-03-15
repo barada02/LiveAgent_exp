@@ -50,6 +50,7 @@ app = FastAPI()
 # Mount static files
 static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
+app.mount("/v1/ui/static", StaticFiles(directory=static_dir), name="ui-static-v1")
 
 # Define your session service
 session_service = InMemorySessionService()
@@ -64,7 +65,39 @@ runner = Runner(app_name=APP_NAME, agent=agent, session_service=session_service)
 
 @app.get("/")
 async def root():
-    """Serve the index.html page."""
+    """Backend service root endpoint."""
+    return {
+        "service": APP_NAME,
+        "status": "ok",
+        "version": "v1",
+        "endpoints": {
+            "root": "/v1/root",
+            "ui": "/v1/ui",
+            "websocket": "/v1/ws/{user_id}/{session_id}",
+        },
+    }
+
+
+@app.get("/v1/root")
+async def v1_root():
+    """Versioned backend health/info endpoint."""
+    return {
+        "service": APP_NAME,
+        "status": "ok",
+        "version": "v1",
+        "message": "Backend is running",
+    }
+
+
+@app.get("/v1/ui")
+async def v1_ui():
+    """Serve optional UI for local/backend validation."""
+    return FileResponse(Path(__file__).parent / "static" / "index.html")
+
+
+@app.get("/ui")
+async def ui_legacy():
+    """Legacy UI endpoint for backward compatibility."""
     return FileResponse(Path(__file__).parent / "static" / "index.html")
 
 
@@ -73,6 +106,7 @@ async def root():
 # ========================================
 
 
+@app.websocket("/v1/ws/{user_id}/{session_id}")
 @app.websocket("/ws/{user_id}/{session_id}")
 async def websocket_endpoint(
     websocket: WebSocket,
