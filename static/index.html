@@ -9,28 +9,36 @@
   </head>
 
   <body>
-    <header>
-      <h1>ADK Gemini Live API Toolkit Demo</h1>
-      <div class="subtitle">Real-time bidirectional streaming with Google ADK</div>
-      <div class="header-options">
-        <label class="header-checkbox" title="Enable model to proactively respond without explicit prompts (Native audio models only)">
-          <input type="checkbox" id="enableProactivity">
-          <span>Proactivity</span>
-        </label>
-        <label class="header-checkbox" title="Enable model to detect and adapt to emotional cues (Native audio models only)">
-          <input type="checkbox" id="enableAffectiveDialog">
-          <span>Affective Dialog</span>
-        </label>
+    <header class="app-header">
+      <div class="header-left">
+        <h1>ADK Gemini Live API Toolkit Demo</h1>
+        <div class="subtitle">Real-time bidirectional streaming with Google ADK</div>
       </div>
-      <div class="connection-status">
-        <span class="status-indicator" id="statusIndicator"></span>
-        <span id="statusText">Connecting...</span>
+
+      <div class="header-controls">
+        <div class="header-options">
+          <label class="header-checkbox" title="Enable model to proactively respond without explicit prompts (Native audio models only)">
+            <input type="checkbox" id="enableProactivity">
+            <span>Proactivity</span>
+          </label>
+          <label class="header-checkbox" title="Enable model to detect and adapt to emotional cues (Native audio models only)">
+            <input type="checkbox" id="enableAffectiveDialog">
+            <span>Affective Dialog</span>
+          </label>
+        </div>
+
+        <div class="connection-status">
+          <span class="status-indicator" id="statusIndicator"></span>
+          <span id="statusText">Connecting...</span>
+        </div>
+
+        <button type="button" id="toggleConsoleButton" class="header-btn">Console</button>
       </div>
     </header>
 
-    <div class="main-layout">
+    <div class="app-shell">
       <div class="container">
-        <div id="messages"></div>
+        <div id="messages" class="messages"></div>
 
         <div class="input-container">
           <form id="messageForm">
@@ -48,17 +56,11 @@
               <button type="button" id="liveCameraButton">🎥 Start Live Cam</button>
             </div>
           </form>
-
-          <div id="liveCameraPanel" class="live-camera-panel">
-            <div class="live-camera-header">
-              <span id="liveCameraStatus">Live camera: stopped</span>
-              <span id="liveCameraStats">Frames sent: 0</span>
-            </div>
-            <video id="liveCameraFeed" autoplay playsinline muted></video>
-          </div>
         </div>
       </div>
+    </div>
 
+    <aside id="consoleDrawer" class="console-drawer">
       <div class="console-panel">
         <div class="console-header">
           <h2>Event Console</h2>
@@ -67,11 +69,23 @@
               <input type="checkbox" id="showAudioEvents">
               <span>Show audio</span>
             </label>
+            <button id="closeConsoleDrawer" class="console-clear-btn">Close</button>
             <button id="clearConsole" class="console-clear-btn">Clear</button>
           </div>
         </div>
         <div id="consoleContent" class="console-content"></div>
       </div>
+    </aside>
+
+    <div id="liveCameraPanel" class="live-camera-panel floating">
+      <div class="live-camera-header">
+        <span id="liveCameraStatus">Live camera: stopped</span>
+        <div class="live-camera-actions">
+          <span id="liveCameraStats">Frames sent: 0</span>
+          <button type="button" id="closeLiveCameraPanel" class="console-clear-btn">Hide</button>
+        </div>
+      </div>
+      <video id="liveCameraFeed" autoplay playsinline muted></video>
     </div>
 
     <!-- Camera Preview Modal -->

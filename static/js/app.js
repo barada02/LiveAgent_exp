@@ -69,6 +69,9 @@ const statusText = document.getElementById("statusText");
 const consoleContent = document.getElementById("consoleContent");
 const clearConsoleBtn = document.getElementById("clearConsole");
 const showAudioEventsCheckbox = document.getElementById("showAudioEvents");
+const toggleConsoleButton = document.getElementById("toggleConsoleButton");
+const closeConsoleDrawerBtn = document.getElementById("closeConsoleDrawer");
+const consoleDrawer = document.getElementById("consoleDrawer");
 let currentMessageId = null;
 let currentBubbleElement = null;
 let currentInputTranscriptionId = null;
@@ -204,6 +207,35 @@ function clearConsole() {
 
 // Clear console button handler
 clearConsoleBtn.addEventListener('click', clearConsole);
+
+function setConsoleDrawerOpen(isOpen) {
+  if (!consoleDrawer) {
+    return;
+  }
+
+  consoleDrawer.classList.toggle('open', isOpen);
+  localStorage.setItem('consoleDrawerOpen', isOpen ? '1' : '0');
+}
+
+function toggleConsoleDrawer() {
+  if (!consoleDrawer) {
+    return;
+  }
+
+  const isOpen = consoleDrawer.classList.contains('open');
+  setConsoleDrawerOpen(!isOpen);
+}
+
+if (toggleConsoleButton) {
+  toggleConsoleButton.addEventListener('click', toggleConsoleDrawer);
+}
+
+if (closeConsoleDrawerBtn) {
+  closeConsoleDrawerBtn.addEventListener('click', () => setConsoleDrawerOpen(false));
+}
+
+const persistedConsoleDrawer = localStorage.getItem('consoleDrawerOpen');
+setConsoleDrawerOpen(persistedConsoleDrawer === '1');
 
 // Update connection status UI
 function updateConnectionStatus(connected) {
@@ -849,6 +881,7 @@ const liveCameraPanel = document.getElementById("liveCameraPanel");
 const liveCameraFeed = document.getElementById("liveCameraFeed");
 const liveCameraStatus = document.getElementById("liveCameraStatus");
 const liveCameraStats = document.getElementById("liveCameraStats");
+const closeLiveCameraPanelBtn = document.getElementById("closeLiveCameraPanel");
 
 let cameraStream = null;
 let cameraStreamInterval = null;
@@ -1097,6 +1130,10 @@ liveCameraButton.addEventListener("click", toggleLiveCameraStreaming);
 closeCameraModal.addEventListener("click", closeCameraPreview);
 cancelCamera.addEventListener("click", closeCameraPreview);
 captureImageBtn.addEventListener("click", captureImageFromPreview);
+
+if (closeLiveCameraPanelBtn) {
+  closeLiveCameraPanelBtn.addEventListener('click', stopLiveCameraStreaming);
+}
 
 // Close modal when clicking outside of it
 cameraModal.addEventListener("click", (event) => {
