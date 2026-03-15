@@ -12,6 +12,12 @@ const sessionId = "demo-session-" + Math.random().toString(36).substring(7);
 let websocket = null;
 let is_audio = false;
 
+// Binary frame protocol: [0x4C, 0x47, frameType, ...payload]
+const BINARY_MAGIC_1 = 0x4C; // 'L'
+const BINARY_MAGIC_2 = 0x47; // 'G'
+const BINARY_FRAME_TYPE_AUDIO_PCM16 = 0x01;
+const BINARY_FRAME_TYPE_IMAGE_JPEG = 0x02;
+
 // Get checkbox elements for RunConfig options
 const enableProactivityCheckbox = document.getElementById("enableProactivity");
 const enableAffectiveDialogCheckbox = document.getElementById("enableAffectiveDialog");
@@ -801,21 +807,191 @@ function base64ToArray(base64) {
   return bytes.buffer;
 }
 
+function createBinaryFrame(frameType, payloadBuffer) {
+  const payloadBytes = new Uint8Array(payloadBuffer);
+  const framedBytes = new Uint8Array(payloadBytes.byteLength + 3);
+  framedBytes[0] = BINARY_MAGIC_1;
+  framedBytes[1] = BINARY_MAGIC_2;
+  framedBytes[2] = frameType;
+  framedBytes.set(payloadBytes, 3);
+  return framedBytes.buffer;
+}
+
+function sendAudioBinary(pcmData) {
+  if (websocket && websocket.readyState === WebSocket.OPEN && is_audio) {
+    const framedAudio = createBinaryFrame(BINARY_FRAME_TYPE_AUDIO_PCM16, pcmData);
+    websocket.send(framedAudio);
+  }
+}
+
+async function sendImageBlobBinary(blob) {
+  if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+    return;
+  }
+
+  const imageBuffer = await blob.arrayBuffer();
+  const framedImage = createBinaryFrame(BINARY_FRAME_TYPE_IMAGE_JPEG, imageBuffer);
+  websocket.send(framedImage);
+}
+
 /**
  * Camera handling
  */
 
 const cameraButton = document.getElementById("cameraButton");
+const liveCameraButton = document.getElementById("liveCameraButton");
 const cameraModal = document.getElementById("cameraModal");
 const cameraPreview = document.getElementById("cameraPreview");
 const closeCameraModal = document.getElementById("closeCameraModal");
 const cancelCamera = document.getElementById("cancelCamera");
 const captureImageBtn = document.getElementById("captureImage");
+const liveCameraPanel = document.getElementById("liveCameraPanel");
+const liveCameraFeed = document.getElementById("liveCameraFeed");
+const liveCameraStatus = document.getElementById("liveCameraStatus");
+const liveCameraStats = document.getElementById("liveCameraStats");
 
 let cameraStream = null;
+let cameraStreamInterval = null;
+let streamCanvas = null;
+let streamContext = null;
+let isLiveCameraStreaming = false;
+let liveCameraFramesSent = 0;
+
+function updateLiveCameraUI() {
+  if (isLiveCameraStreaming) {
+    liveCameraPanel.classList.add('active');
+    liveCameraButton.textContent = '🎥 Stop Live Cam';
+    liveCameraStatus.textContent = 'Live camera: streaming at 1 FPS';
+  } else {
+    liveCameraPanel.classList.remove('active');
+    liveCameraButton.textContent = '🎥 Start Live Cam';
+    liveCameraStatus.textContent = 'Live camera: stopped';
+  }
+  liveCameraStats.textContent = `Frames sent: ${liveCameraFramesSent}`;
+}
+
+function startCameraStream1FPS(videoElement) {
+  if (cameraStreamInterval || !cameraStream || !videoElement) {
+    return;
+  }
+
+  // Reuse a single offscreen canvas for periodic frame capture
+  streamCanvas = document.createElement('canvas');
+  streamContext = streamCanvas.getContext('2d');
+
+  // Send one frame every second (1 FPS)
+  cameraStreamInterval = setInterval(() => {
+    if (!cameraStream || !videoElement.videoWidth || !videoElement.videoHeight) {
+      return;
+    }
+
+    try {
+      streamCanvas.width = videoElement.videoWidth;
+      streamCanvas.height = videoElement.videoHeight;
+      streamContext.drawImage(videoElement, 0, 0, streamCanvas.width, streamCanvas.height);
+
+      streamCanvas.toBlob((blob) => {
+        if (!blob) {
+          return;
+        }
+
+        sendImageBlobBinary(blob).catch((error) => {
+          console.error('Failed to send camera frame blob:', error);
+        });
+
+        liveCameraFramesSent += 1;
+        updateLiveCameraUI();
+      }, 'image/jpeg', 0.75);
+    } catch (error) {
+      console.error('Error streaming camera frame:', error);
+    }
+  }, 1000);
+
+  addSystemMessage('Camera stream started (1 FPS)');
+  addConsoleEntry('outgoing', 'Camera stream started at 1 FPS', {
+    fps: 1,
+    format: 'image/jpeg'
+  }, '🎥', 'system');
+}
+
+function stopCameraStream1FPS() {
+  if (cameraStreamInterval) {
+    clearInterval(cameraStreamInterval);
+    cameraStreamInterval = null;
+    streamCanvas = null;
+    streamContext = null;
+
+    addSystemMessage('Camera stream stopped');
+    addConsoleEntry('outgoing', 'Camera stream stopped', {
+      fps: 1
+    }, '⏹️', 'system');
+  }
+}
+
+async function startLiveCameraStreaming() {
+  if (isLiveCameraStreaming) {
+    return;
+  }
+
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        width: { ideal: 768 },
+        height: { ideal: 768 },
+        facingMode: 'user'
+      }
+    });
+
+    liveCameraFeed.srcObject = cameraStream;
+    isLiveCameraStreaming = true;
+    liveCameraFramesSent = 0;
+    updateLiveCameraUI();
+
+    if (liveCameraFeed.readyState >= 1) {
+      startCameraStream1FPS(liveCameraFeed);
+    } else {
+      liveCameraFeed.onloadedmetadata = () => {
+        startCameraStream1FPS(liveCameraFeed);
+      };
+    }
+  } catch (error) {
+    console.error('Error starting live camera stream:', error);
+    addSystemMessage(`Failed to start live camera stream: ${error.message}`);
+    addConsoleEntry('error', 'Live camera stream failed to start', {
+      error: error.message,
+      name: error.name
+    }, '⚠️', 'system');
+  }
+}
+
+function stopLiveCameraStreaming() {
+  stopCameraStream1FPS();
+
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(track => track.stop());
+    cameraStream = null;
+  }
+
+  liveCameraFeed.srcObject = null;
+  isLiveCameraStreaming = false;
+  updateLiveCameraUI();
+}
+
+function toggleLiveCameraStreaming() {
+  if (isLiveCameraStreaming) {
+    stopLiveCameraStreaming();
+  } else {
+    startLiveCameraStreaming();
+  }
+}
 
 // Open camera modal and start preview
 async function openCameraPreview() {
+  if (isLiveCameraStreaming) {
+    addSystemMessage('Stop Live Camera before opening capture mode');
+    return;
+  }
+
   try {
     // Request access to the user's webcam
     cameraStream = await navigator.mediaDevices.getUserMedia({
@@ -886,13 +1062,11 @@ function captureImageFromPreview() {
 
     // Convert canvas to blob for sending to server
     canvas.toBlob((blob) => {
-      // Convert blob to base64 for sending to server
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64data = reader.result.split(',')[1]; // Remove data:image/jpeg;base64, prefix
-        sendImage(base64data);
-      };
-      reader.readAsDataURL(blob);
+      if (blob) {
+        sendImageBlobBinary(blob).catch((error) => {
+          console.error('Failed to send captured image blob:', error);
+        });
+      }
 
       // Log to console
       addConsoleEntry('outgoing', `Image captured: ${blob.size} bytes (JPEG)`, {
@@ -917,21 +1091,9 @@ function captureImageFromPreview() {
   }
 }
 
-// Send image to server
-function sendImage(base64Image) {
-  if (websocket && websocket.readyState === WebSocket.OPEN) {
-    const jsonMessage = JSON.stringify({
-      type: "image",
-      data: base64Image,
-      mimeType: "image/jpeg"
-    });
-    websocket.send(jsonMessage);
-    console.log("[CLIENT TO AGENT] Sent image");
-  }
-}
-
 // Event listeners
 cameraButton.addEventListener("click", openCameraPreview);
+liveCameraButton.addEventListener("click", toggleLiveCameraStreaming);
 closeCameraModal.addEventListener("click", closeCameraPreview);
 cancelCamera.addEventListener("click", closeCameraPreview);
 captureImageBtn.addEventListener("click", captureImageFromPreview);
@@ -942,6 +1104,8 @@ cameraModal.addEventListener("click", (event) => {
     closeCameraPreview();
   }
 });
+
+updateLiveCameraUI();
 
 /**
  * Audio handling
@@ -993,8 +1157,8 @@ startAudioButton.addEventListener("click", () => {
 // Audio recorder handler
 function audioRecorderHandler(pcmData) {
   if (websocket && websocket.readyState === WebSocket.OPEN && is_audio) {
-    // Send audio as binary WebSocket frame (more efficient than base64 JSON)
-    websocket.send(pcmData);
+    // Send audio as typed binary frame
+    sendAudioBinary(pcmData);
     console.log("[CLIENT TO AGENT] Sent audio chunk: %s bytes", pcmData.byteLength);
 
     // Log to console panel (optional, can be noisy with frequent audio chunks)
